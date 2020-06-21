@@ -150,6 +150,8 @@ test_set <- edx[test_index,]
 # Remove unused data objects
 rm(fake_news, true_news, news, test_index)
 
+# Garbage collect to clear out anything 
+# lingering in memory
 gc()
 
 ####################################################### Create DTMs for modeling
@@ -237,6 +239,8 @@ rm(edx, validation, edx_dtm, validation_dtm)
 rm(edx_tokens, validation_tokens, edx_tfidf)
 rm(test_set_tokens, train_set_tokens)
 
+# Garbage collect to clear out anything 
+# lingering in memory
 gc()
 
 ####################################################### Build Models
