@@ -99,7 +99,7 @@ true_news %>%
   row_spec(0, color = "white", background = "#5a5cd6")
 
 # Remove stop words and examine the 20 most common words in 
-# the true news articles
+# the true news articles. Stop words like "the", "a", "to", etc...
 true_news %>% 
   unnest_tokens(output = word, input = text) %>% 
   anti_join(stop_words) %>% 
@@ -117,7 +117,7 @@ true_news %>%
 # Combine fake and true news datasets, create doc id, 
 # convert all text to lowercase, and do some general cleaning
 news <- rbind(fake_news, true_news) %>% 
-  # create arbitrary document id
+  # create arbitrary document id and convert text to lowercase
   mutate(doc_id = seq(1, nrow(fake_news) + nrow(true_news), 1), 
          text = tolower(text)) %>% 
   # add space between numbers and words
@@ -154,7 +154,8 @@ gc()
 
 ####################################################### Create DTMs for modeling
 
-# Create tidy token dataframes
+# Create tidy token dataframes. This creates one row for each word
+# in the text.
 edx_tokens <- edx %>% 
   unnest_tokens(output = word, input = text) %>% 
   filter(!str_detect(word, "^[0-9]*$")) %>%
@@ -179,7 +180,9 @@ test_set_tokens <- test_set %>%
   anti_join(stop_words) %>% 
   mutate(word = SnowballC::wordStem(word))
 
-# Create Document Term Matrices
+# Create Document Term Matrices. DTMs have the doc id in the 
+# row and the words in the columns. The value at the intersection
+# is the Tf-Idf discussed in the report.
 edx_dtm <- edx_tokens %>% 
   count(doc_id, word) %>% 
   cast_dtm(document = doc_id, term = word, value = n,
@@ -204,41 +207,18 @@ test_set_dtm <- test_set_tokens %>%
            weighting = tm::weightTfIdf) %>% 
   removeSparseTerms(sparse = .99)
 
-# Ensure same terms are in both edx and validation document term matrices
+# Ensure same terms/words are in both edx and validation document term matrices
 edx_dtm <- edx_dtm[, intersect(colnames(edx_dtm), colnames(validation_dtm))]
 validation_dtm <- validation_dtm[, intersect(colnames(validation_dtm), colnames(edx_dtm))]
 
-# Ensure same terms are in both train and test document term matrices
+# Ensure same terms/words are in both train and test document term matrices
 train_set_dtm <- train_set_dtm[, intersect(colnames(train_set_dtm), colnames(test_set_dtm))]
 test_set_dtm <- test_set_dtm[, intersect(colnames(test_set_dtm), colnames(train_set_dtm))]
-
-################################################################ Plots
-
-# Manually calculate tfidf for plotting purposes
-edx_tfidf <- edx_tokens %>%
-  count(fake, word) %>%
-  bind_tf_idf(term = word, document = fake, n = n)
-
-plot_edx <- edx_tfidf %>%
-  arrange(desc(tf_idf)) %>%
-  mutate(word = factor(word, levels = rev(unique(word)))) %>% 
-  group_by(fake) %>%
-  top_n(10) %>%
-  ungroup() %>%
-  mutate(word = reorder_within(word, tf_idf, fake)) %>%
-  ggplot(aes(word, tf_idf)) +
-  geom_col() +
-  scale_x_reordered() +
-  labs(x = NULL, y = "tf-idf") +
-  facet_wrap(~ fake, scales = "free") +
-  coord_flip()
-
-plot_edx 
 
 ####################################################### Save some files for later
 
 # Create folder in the wd to save RDS files 
-# if it doesn't already exist
+# if it doesn't already exist.
 if(dir.exists("RDS") == FALSE){dir.create("RDS")}
 
 # Save some objects to free up memory
@@ -263,6 +243,7 @@ gc()
 
 ####################################### Random Forest Model
 
+# Tictoc package used for timing model training
 tic()
 set.seed(1, sample.kind="Rounding")
 
@@ -295,6 +276,7 @@ accuracy_results %>% knitr::kable() %>%
 
 ####################################### Support Vector Machine
 
+# Tictoc package used for timing model training
 tic()
 set.seed(1, sample.kind="Rounding")
 train_svm <- train(x = as.matrix(train_set_dtm),
@@ -302,6 +284,9 @@ train_svm <- train(x = as.matrix(train_set_dtm),
                    method = "svmLinearWeights2")
 toc()
 
+# Get training column order to use in the prediction
+# I had an issue where the columns not being in the 
+# same order was throwing an error.
 col_order <- colnames(train_set_dtm)
 
 # Make predictions on test set
@@ -324,6 +309,7 @@ accuracy_results %>% knitr::kable() %>%
 
 ####################################### Extreme Gradient Boosting
 
+# Tictoc package used for timing model training
 tic()
 set.seed(1, sample.kind="Rounding")
 train_xgb <- xgboost(data = as.matrix(train_set_dtm), 
@@ -340,6 +326,9 @@ train_xgb <- xgboost(data = as.matrix(train_set_dtm),
                      nthread = 3)
 toc()
 
+# Get training column order to use in the prediction
+# I had an issue where the columns not being in the 
+# same order was throwing an error.
 col_order <- colnames(train_set_dtm)
 
 # Make predictions on test set
@@ -365,13 +354,16 @@ accuracy_results %>% knitr::kable() %>%
 
 ####################################### Extreme Gradient Boosting Final Model
 
+# Removing some data objects to free up memory
 rm(test_set, train_set, test_set_dtm, train_set_dtm)
 
+# Loading in the edx and validation sets
 edx <- readRDS(file = "RDS/edx.RDS")
 validation <- readRDS(file = "RDS/validation.RDS")
 edx_dtm <- readRDS(file = "RDS/edx_dtm.RDS")
 validation_dtm <- readRDS(file = "RDS/validation_dtm.RDS")
 
+# Tictoc package used for timing model training
 tic()
 set.seed(1, sample.kind="Rounding")
 train_xgb_final <- xgboost(data = as.matrix(edx_dtm), 
@@ -388,6 +380,9 @@ train_xgb_final <- xgboost(data = as.matrix(edx_dtm),
                            nthread = 3)
 toc()
 
+# Get training column order to use in the prediction
+# I had an issue where the columns not being in the 
+# same order was throwing an error.
 col_order <- colnames(edx_dtm)
 
 # predict on validation set
